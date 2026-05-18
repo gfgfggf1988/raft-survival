@@ -383,8 +383,45 @@ const ITEMS = {
   puffer_extreme:{name:'河豚至尊',icon:'👑',type:'food',hunger:25,thirst:5,stamina:18,bonusAttr:'int',bonusVal:5,desc:'至尊河豚料理，大幅增加智力'},
   swordfish_hero:{name:'剑鱼英雄餐',icon:'⚔️',type:'food',hunger:35,thirst:5,stamina:22,bonusAttr:'hpMax',bonusVal:4,desc:'战士之餐，大幅提升体力上限'},
   whale_banquet:{name:'鲸鱼大宴',icon:'🐋',type:'food',hunger:45,thirst:10,stamina:30,bonusAttr:'hpMax',bonusVal:6,desc:'极致盛宴，极大提升体力上限'},
+  // 宝箱物品
+  chest_wood:{name:'漂流木箱',icon:'🪵',type:'chest',chestType:1,desc:'朴素木箱，可能含基础材料'},
+  chest_iron:{name:'铁皮箱',icon:'📦',type:'chest',chestType:2,desc:'铁皮加固，含较好材料'},
+  chest_mil:{name:'军用箱',icon:'🧰',type:'chest',chestType:3,desc:'军用物资箱，可能含武器装备'},
+  chest_deep:{name:'深海箱',icon:'💎',type:'chest',chestType:4,desc:'深海沉船遗物，有概率出稀有装备'},
+  chest_ancient:{name:'远古箱',icon:'🔮',type:'chest',chestType:5,desc:'远古遗物，最高品质战利品'},
   burnt_food:{name:'焦糊食物',icon:'🖤',type:'food',hunger:3,thirst:0,stamina:0,desc:'烧焦了...勉强能吃'},
 };
+
+// 分解产物表
+const DISMANTLE_TABLE = {
+  fish_spear:[{id:'wood',n:1},{id:'metal_scrap',n:1}],
+  bone_dagger:[{id:'fish_bone',n:2},{id:'rope',n:1}],
+  iron_sword:[{id:'metal_block',n:1},{id:'wood',n:1}],
+  iron_axe:[{id:'metal_block',n:1},{id:'wood',n:1}],
+  bone_bow:[{id:'fish_bone',n:2},{id:'vine',n:1}],
+  conch_horn:[{id:'shell',n:1}],
+  coral_staff:[{id:'coral',n:2},{id:'pearl',n:1}],
+  trident:[{id:'metal_block',n:2},{id:'deep_crystal',n:1}],
+  abyss_eye:[{id:'deep_crystal',n:1},{id:'pearl',n:2}],
+  straw_sandals:[{id:'cloth',n:1},{id:'rope',n:1}],
+  leather_boots:[{id:'cloth',n:2},{id:'metal_scrap',n:1}],
+  iron_greaves:[{id:'metal_block',n:1},{id:'cloth',n:1}],
+  flippers:[{id:'cloth',n:1},{id:'rope',n:1}],
+  wind_shoes:[{id:'cloth',n:2},{id:'deep_crystal',n:1}],
+  scuba:[{id:'cloth',n:2},{id:'metal_scrap',n:1}],
+  turtle_shell:[{id:'shell',n:2},{id:'pearl',n:1}],
+  amulet:[{id:'pearl',n:2},{id:'deep_crystal',n:1}],
+  diving_suit:[{id:'cloth',n:2},{id:'metal_scrap',n:1},{id:'gear',n:1}],
+};
+
+// 根据玩家等级获取宝箱物品ID
+function getChestIdByLevel(lv){
+  if(lv >= 9) return 'chest_ancient';
+  if(lv >= 7) return 'chest_deep';
+  if(lv >= 5) return 'chest_mil';
+  if(lv >= 3) return 'chest_iron';
+  return 'chest_wood';
+}
 
 // 怪物数据库
 const MONSTERS = [
@@ -1401,19 +1438,13 @@ function doAutoFish(){
     // 空竿
     return;
   } else if(typeRoll < 25 + chestBonus){
-    // 宝箱 - 自动开箱
-    const chestItems = rollChestItems();
-    const got = [];
-    chestItems.forEach(id => {
-      if(ITEMS[id]){
-        addItem(id);
-        got.push(`${ITEMS[id].icon}${ITEMS[id].name}`);
-        if(!toBackpack) G.onRaftItems.push({id:id,placedHour:G.day*24+G.hour}); // 5级放甲板
-      }
-    });
-    if(got.length > 0){
-      const dest = toBackpack ? '背包' : '甲板';
-      addLog(`🤖 自动钓鱼开出宝箱！→${dest}：${got.join('、')}`, 'success');
+    // 宝箱 - 存入背包
+    const chestId = getChestIdByLevel(G.level);
+    if(getUsedSlots() < G.maxSlots || G.inventory[chestId]){
+      addItem(chestId);
+      addLog(`🤖 自动钓鱼获得${ITEMS[chestId].icon}${ITEMS[chestId].name}！→背包`, 'success');
+    } else {
+      addLog('🤖 自动钓鱼钓到宝箱但背包已满！','warn');
     }
     return;
   }
@@ -1596,20 +1627,14 @@ function doFishOnce(silent){
     if(!silent) renderAll();
     return result;
   } else if(typeRoll < 28 + chestBonus){
-    // 宝箱
+    // 宝箱 - 存入背包
     result.type = 'chest';
-    if(silent){
-      // 批量模式：自动开箱
-      const chestItems = rollChestItems();
-      chestItems.forEach(id => {
-        if(ITEMS[id]){
-          addItem(id);
-          result.items.push({id,n:1});
-        }
-      });
+    const chestId = getChestIdByLevel(G.level);
+    if(getUsedSlots() >= G.maxSlots && !G.inventory[chestId]){
+      addLog('📦 钓到宝箱但背包已满！','warn');
     } else {
-      doChest(staminaCost, durCost);
-      return result;
+      addItem(chestId);
+      addLog(`${ITEMS[chestId].icon} 获得${ITEMS[chestId].name}！已存入背包`,'success');
     }
     if(!silent) renderAll();
     return result;
@@ -1867,14 +1892,21 @@ function handleExtraCatch(c){
 }
 
 // ==================== 宝箱系统 ====================
-function doChest(staminaCost, durCost){
+function doChest(staminaCost, durCost, forceChestType){
   const lv = G.level;
   let chestType, chestIcon, chestName, slots;
-  if(lv >= 9){chestType=5;chestIcon='🔮';chestName='远古箱';slots=4;}
-  else if(lv >= 7){chestType=4;chestIcon='💎';chestName='深海箱';slots=3;}
-  else if(lv >= 5){chestType=3;chestIcon='🧰';chestName='军用箱';slots=3;}
-  else if(lv >= 3){chestType=2;chestIcon='📦';chestName='铁皮箱';slots=2;}
-  else {chestType=1;chestIcon='🪵';chestName='漂流木箱';slots=2;}
+  if(forceChestType){
+    chestType = forceChestType;
+    const chestNames = {1:{icon:'🪵',name:'漂流木箱'},2:{icon:'📦',name:'铁皮箱'},3:{icon:'🧰',name:'军用箱'},4:{icon:'💎',name:'深海箱'},5:{icon:'🔮',name:'远古箱'}};
+    chestIcon = chestNames[chestType]?.icon || '📦';
+    chestName = chestNames[chestType]?.name || '宝箱';
+  } else {
+    if(lv >= 9){chestType=5;chestIcon='🔮';chestName='远古箱';slots=4;}
+    else if(lv >= 7){chestType=4;chestIcon='💎';chestName='深海箱';slots=3;}
+    else if(lv >= 5){chestType=3;chestIcon='🧰';chestName='军用箱';slots=3;}
+    else if(lv >= 3){chestType=2;chestIcon='📦';chestName='铁皮箱';slots=2;}
+    else {chestType=1;chestIcon='🪵';chestName='漂流木箱';slots=2;}
+  }
 
   const contents = generateChestContents(chestType);
   // 海神庇佑：宝箱额外+1件
@@ -2023,6 +2055,139 @@ function chestAllToBag(){
   renderAll();
 }
 
+// 开启单个宝箱（从背包useItem触发）
+function openChestSingle(chestId){
+  const item = ITEMS[chestId];
+  if(!item || item.type !== 'chest') return;
+  if(!removeItem(chestId)){showToast('没有该宝箱');return;}
+  doChest(0, 0, item.chestType);
+}
+
+// 批量开启宝箱弹窗
+function openChestBatch(chestId){
+  const item = ITEMS[chestId];
+  if(!item || item.type !== 'chest') return;
+  const count = G.inventory[chestId] || 0;
+  if(count <= 0){showToast('没有该宝箱');return;}
+
+  const body = document.getElementById('panelBody');
+  const btns = [];
+  if(count >= 1) btns.push({label:'开启 ×1',n:1});
+  if(count >= 5) btns.push({label:'开启 ×5',n:5});
+  if(count > 1) btns.push({label:`全部开启 ×${count}`,n:count});
+
+  let html = `<div class="panel-title">${item.icon} ${item.name}（×${count}）<button class="panel-close" onclick="closePanel();openInventory()">✕</button></div>`;
+  html += `<div style="padding:12px;text-align:center">`;
+  html += `<div style="font-size:13px;color:var(--text-dim);margin-bottom:12px">选择开启数量</div>`;
+  btns.forEach(b => {
+    html += `<button style="display:block;width:100%;padding:10px;margin-bottom:8px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-card);color:var(--accent);cursor:pointer;font-size:14px;font-weight:600" onclick="doChestBatch('${chestId}',${b.n})">${b.label}</button>`;
+  });
+  html += `</div>`;
+  body.innerHTML = html;
+  openPanel();
+}
+
+// 执行批量开箱
+function doChestBatch(chestId, count){
+  const item = ITEMS[chestId];
+  if(!item) return;
+  const actualCount = Math.min(count, G.inventory[chestId] || 0);
+  if(actualCount <= 0) return;
+  removeItem(chestId, actualCount);
+
+  // 生成所有宝箱内容并合并
+  const totalRewards = {};
+  for(let i = 0; i < actualCount; i++){
+    const contents = generateChestContents(item.chestType);
+    if(hasTalent('ocean_blessing')){
+      const bonusSlot = generateChestBonusItem(item.chestType);
+      if(bonusSlot) contents.push(bonusSlot);
+    }
+    contents.forEach(c => {
+      totalRewards[c.id] = (totalRewards[c.id] || 0) + c.n;
+    });
+  }
+
+  // 保存到临时状态
+  G._batchChestRewards = totalRewards;
+  G._batchChestName = item.name;
+  G._batchChestIcon = item.icon;
+  G._batchChestCount = actualCount;
+  renderBatchChestResult();
+}
+
+// 渲染批量开箱结果
+function renderBatchChestResult(){
+  if(!G._batchChestRewards) return;
+  const rewards = G._batchChestRewards;
+  const name = G._batchChestName || '宝箱';
+  const icon = G._batchChestIcon || '📦';
+  const count = G._batchChestCount || 1;
+
+  const body = document.getElementById('panelBody');
+  let html = `<div class="panel-title">${icon} 开启 ×${count} ${name}<button class="panel-close" onclick="discardBatchChest()">✕</button></div>`;
+  html += '<div style="max-height:45vh;overflow-y:auto;scrollbar-width:thin;padding:4px 0">';
+
+  Object.entries(rewards).forEach(([id, n]) => {
+    const rItem = ITEMS[id];
+    if(!rItem) return;
+    const effect = getItemEffectText(rItem, id);
+    let qualityColor = 'var(--text-dim)';
+    if(rItem.bonusAttr) qualityColor = rItem.bonusVal >= 5 ? '#f59e0b' : rItem.bonusVal >= 3 ? '#a855f7' : rItem.bonusVal >= 2 ? '#3b82f6' : '#22c55e';
+    if(rItem.type === 'weapon') qualityColor = rItem.quality === 'mythic' ? '#ef4444' : rItem.quality === 'legendary' ? '#f59e0b' : '#3b82f6';
+    html += `<div style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--bg-card);border-radius:8px;margin-bottom:4px;border:1px solid var(--border)">
+      <span style="font-size:22px">${rItem.icon}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${rItem.name}${n>1?' ×'+n:''}</div>
+        <div style="font-size:11px;color:${qualityColor}">${effect}</div>
+      </div>
+    </div>`;
+  });
+
+  html += '</div>';
+  html += `<div style="margin-top:8px;display:flex;gap:8px">
+    <button style="flex:1;padding:8px;border-radius:8px;border:1px solid #22c55e;background:#1a2e1a;color:#22c55e;cursor:pointer;font-size:13px" onclick="batchChestAllToBag()">🎒全部入背包</button>
+    <button style="flex:1;padding:8px;border-radius:8px;border:1px solid #7a5a00;background:#2e2a1a;color:#f59e0b;cursor:pointer;font-size:13px" onclick="batchChestAllToRaft()">🪵全部放木筏</button>
+    <button style="flex:1;padding:8px;border-radius:8px;border:1px solid #ef4444;background:#2e1a1a;color:#ef4444;cursor:pointer;font-size:13px" onclick="discardBatchChest()">🗑️丢弃</button>
+  </div>`;
+  body.innerHTML = html;
+  openPanel();
+}
+
+function batchChestAllToBag(){
+  if(!G._batchChestRewards) return;
+  let fullCount = 0;
+  Object.entries(G._batchChestRewards).forEach(([id, n]) => {
+    if(getUsedSlots() >= G.maxSlots && !G.inventory[id]){fullCount++;return;}
+    addItem(id, n);
+    addLog(`📦 ${ITEMS[id]?.name||id}×${n} 放入背包`,'success');
+  });
+  if(fullCount > 0) showToast(`${fullCount}种物品背包已满`);
+  G._batchChestRewards = null;
+  closePanel();
+  openInventory();
+  renderAll();
+}
+
+function batchChestAllToRaft(){
+  if(!G._batchChestRewards) return;
+  Object.entries(G._batchChestRewards).forEach(([id, n]) => {
+    for(let i=0;i<n;i++) G.onRaftItems.push({id:id,placedHour:G.day*24+G.hour});
+    addLog(`📦 ${ITEMS[id]?.name||id}×${n} 放到木筏上`,'warn');
+  });
+  G._batchChestRewards = null;
+  closePanel();
+  openInventory();
+  renderAll();
+}
+
+function discardBatchChest(){
+  G._batchChestRewards = null;
+  closePanel();
+  openInventory();
+  renderAll();
+}
+
 // 游戏时间推进（分钟）
 function advanceMinutes(mins){
   G.minute = (G.minute||0) + mins;
@@ -2082,7 +2247,7 @@ function openInventory(tab){
   const tabs = [
     {id:'all', label:'📦 全部', count:items.length},
     {id:'food', label:'🍽️ 食物', count:items.filter(([id])=>ITEMS[id]&&(ITEMS[id].type==='food'||ITEMS[id].type==='drink')).length},
-    {id:'material', label:'🪵 材料', count:items.filter(([id])=>ITEMS[id]&&ITEMS[id].type==='material').length},
+    {id:'material', label:'🪵 物品', count:items.filter(([id])=>ITEMS[id]&&(ITEMS[id].type==='material'||ITEMS[id].type==='chest')).length},
     {id:'equip', label:'⚔️ 装备', count:items.filter(([id])=>ITEMS[id]&&['weapon','shoes','gear','special'].includes(ITEMS[id].type)).length},
   ];
   html += `<div style="display:flex;gap:4px;margin-bottom:8px;overflow-x:auto;scrollbar-width:none">`;
@@ -2095,7 +2260,7 @@ function openInventory(tab){
   // 过滤物品
   let filtered = items;
   if(currentTab === 'food') filtered = items.filter(([id])=>ITEMS[id]&&(ITEMS[id].type==='food'||ITEMS[id].type==='drink'));
-  else if(currentTab === 'material') filtered = items.filter(([id])=>ITEMS[id]&&ITEMS[id].type==='material');
+  else if(currentTab === 'material') filtered = items.filter(([id])=>ITEMS[id]&&(ITEMS[id].type==='material'||ITEMS[id].type==='chest'));
   else if(currentTab === 'equip') filtered = items.filter(([id])=>ITEMS[id]&&['weapon','shoes','gear','special'].includes(ITEMS[id].type));
 
   // === 背包物品区 ===
@@ -2117,9 +2282,11 @@ function openInventory(tab){
         qualityColor = item.quality === 'mythic' ? '#ef4444' : item.quality === 'legendary' ? '#f59e0b' : '#3b82f6';
       }
       // 类型标签色
-      const typeColor = item.type==='food'?'#22c55e':item.type==='drink'?'#38bdf8':item.type==='material'?'#f59e0b':item.type==='weapon'?'#ef4444':item.type==='shoes'?'#a855f7':'var(--text-dim)';
+      const typeColor = item.type==='food'?'#22c55e':item.type==='drink'?'#38bdf8':item.type==='material'?'#f59e0b':item.type==='weapon'?'#ef4444':item.type==='shoes'?'#a855f7':item.type==='chest'?'#e879f9':'var(--text-dim)';
       // 判断是否可使用
       const canUse = item.type === 'food' || item.type === 'drink' || item.type === 'weapon' || item.type === 'shoes' || item.type === 'gear' || (item.type === 'special' && (item.luckBonus || item.intBonus));
+      const canDismantle = item.type === 'weapon' || item.type === 'shoes' || item.type === 'gear';
+      const isChest = item.type === 'chest';
       html += `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-card);border-radius:8px;margin-bottom:4px;border-left:3px solid ${typeColor}">
         <span style="font-size:24px;min-width:28px;text-align:center">${item.icon}</span>
         <div style="flex:1;min-width:0">
@@ -2130,8 +2297,10 @@ function openInventory(tab){
           <div style="font-size:11px;color:${qualityColor};margin-top:1px">${effect}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;flex-shrink:0">
+          ${isChest?`<button style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #e879f9;background:#2e1a3e;color:#e879f9;cursor:pointer;white-space:nowrap" onclick="openChestBatch('${id}')">🔑开启</button>`:''}
           ${canUse?`<button style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #22c55e;background:#1a2e1a;color:#22c55e;cursor:pointer;white-space:nowrap" onclick="useItem('${id}')">使用</button>`:''}
-          <button style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #7a5a00;background:#2e2a1a;color:#f59e0b;cursor:pointer;white-space:nowrap" onclick="moveToRaft('${id}')">取出</button>
+          ${canDismantle?`<button style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #ef4444;background:#2e1a1a;color:#ef4444;cursor:pointer;white-space:nowrap" onclick="confirmDismantleFromBag('${id}')">分解</button>`:''}
+          ${!isChest?`<button style="font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid #7a5a00;background:#2e2a1a;color:#f59e0b;cursor:pointer;white-space:nowrap" onclick="moveToRaft('${id}')">取出</button>`:''}
         </div>
       </div>`;
     });
@@ -2261,34 +2430,52 @@ function unequipItem(slot, action){
     addItem(itemId);
     addLog(`📤 卸下 ${item.name} 放入背包`,'success');
   } else if(action === 'dismantle'){
-    // 分解返还部分材料
-    const dismantleTable = {
-      fish_spear:[{id:'wood',n:1},{id:'metal_scrap',n:1}],
-      bone_dagger:[{id:'fish_bone',n:2},{id:'rope',n:1}],
-      iron_sword:[{id:'metal_block',n:1},{id:'wood',n:1}],
-      iron_axe:[{id:'metal_block',n:1},{id:'wood',n:1}],
-      bone_bow:[{id:'fish_bone',n:2},{id:'vine',n:1}],
-      conch_horn:[{id:'shell',n:1}],
-      coral_staff:[{id:'coral',n:2},{id:'pearl',n:1}],
-      trident:[{id:'metal_block',n:2},{id:'deep_crystal',n:1}],
-      abyss_eye:[{id:'deep_crystal',n:1},{id:'pearl',n:2}],
-      straw_sandals:[{id:'cloth',n:1},{id:'rope',n:1}],
-      leather_boots:[{id:'cloth',n:2},{id:'metal_scrap',n:1}],
-      iron_greaves:[{id:'metal_block',n:1},{id:'cloth',n:1}],
-      flippers:[{id:'cloth',n:1},{id:'rope',n:1}],
-      wind_shoes:[{id:'cloth',n:2},{id:'deep_crystal',n:1}],
-      scuba:[{id:'cloth',n:2},{id:'metal_scrap',n:1}],
-      turtle_shell:[{id:'shell',n:2},{id:'pearl',n:1}],
-      amulet:[{id:'pearl',n:2},{id:'deep_crystal',n:1}],
-      diving_suit:[{id:'cloth',n:2},{id:'metal_scrap',n:1},{id:'gear',n:1}],
-    };
-    const returns = dismantleTable[itemId] || [{id:'wood',n:1}];
+    const returns = DISMANTLE_TABLE[itemId] || [{id:'wood',n:1}];
     returns.forEach(r => addItem(r.id, r.n));
     const retStr = returns.map(r => `${ITEMS[r.id]?.icon||r.id}×${r.n}`).join(' ');
     addLog(`🔨 分解了 ${item.name}，获得 ${retStr}`,'success');
   }
 
   G.equipment[slot] = null;
+  openInventory();
+  renderAll();
+}
+
+// 背包内分解确认弹窗
+function confirmDismantleFromBag(id){
+  const item = ITEMS[id];
+  if(!item) return;
+  const returns = DISMANTLE_TABLE[id];
+  if(!returns){showToast('该物品无法分解');return;}
+
+  const body = document.getElementById('panelBody');
+  const isRare = item.quality === 'legendary' || item.quality === 'mythic';
+  const retStr = returns.map(r => `${ITEMS[r.id]?.icon||''} ${ITEMS[r.id]?.name||r.id}×${r.n}`).join('、');
+
+  let html = `<div class="panel-title">🔨 分解确认<button class="panel-close" onclick="closePanel();openInventory()">✕</button></div>`;
+  html += `<div style="padding:12px;text-align:center">`;
+  html += `<div style="font-size:32px;margin-bottom:8px">${item.icon}</div>`;
+  html += `<div style="font-size:15px;font-weight:600;margin-bottom:4px">${item.name}</div>`;
+  if(isRare) html += `<div style="font-size:12px;color:#ef4444;margin-bottom:8px">⚠️ 这是稀有装备，确认分解？</div>`;
+  html += `<div style="font-size:12px;color:var(--text-dim);margin-bottom:12px">分解后获得：${retStr}</div>`;
+  html += `<div style="display:flex;gap:8px">`;
+  html += `<button style="flex:1;padding:10px;border-radius:8px;border:1px solid #ef4444;background:#2e1a1a;color:#ef4444;cursor:pointer;font-size:14px;font-weight:600" onclick="doDismantleFromBag('${id}')">确认分解</button>`;
+  html += `<button style="flex:1;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-dim);cursor:pointer;font-size:14px" onclick="closePanel();openInventory()">取消</button>`;
+  html += `</div></div>`;
+  body.innerHTML = html;
+  openPanel();
+}
+
+function doDismantleFromBag(id){
+  const item = ITEMS[id];
+  if(!item) return;
+  const returns = DISMANTLE_TABLE[id];
+  if(!returns){showToast('该物品无法分解');return;}
+  if(!removeItem(id)){showToast('物品不存在');return;}
+  returns.forEach(r => addItem(r.id, r.n));
+  const retStr = returns.map(r => `${ITEMS[r.id]?.icon||r.id}×${r.n}`).join(' ');
+  addLog(`🔨 分解了 ${item.name}，获得 ${retStr}`,'success');
+  closePanel();
   openInventory();
   renderAll();
 }
@@ -2414,6 +2601,10 @@ function useItem(id){
       addLog(`📦 装备了 ${item.name}！`,'success');
     }
     G.equipment.special = id;
+  } else if(item.type === 'chest'){
+    // 开启单个宝箱
+    openChestSingle(id);
+    return;
   } else if(item.type === 'special'){
     if(item.luckBonus){
       removeItem(id);
